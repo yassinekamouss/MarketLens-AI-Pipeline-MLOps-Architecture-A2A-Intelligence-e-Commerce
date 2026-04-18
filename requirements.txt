@@ -1,0 +1,29 @@
+# Scraping
+requests
+beautifulsoup4
+playwright
+httpx
+pydantic
+tenacity
+
+# ML/Data
+joblib
+pandas
+numpy
+scikit-learn
+xgboost
+
+# Orchestration
+kfp
+
+# LLM
+langchain
+langchain-google-genai
+openai
+anthropic
+mcp
+
+# Frontend
+streamlit
+plotly
+

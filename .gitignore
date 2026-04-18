@@ -1,0 +1,65 @@
+# ==============================
+# Environnement et Sécurité
+# ==============================
+.env
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==============================
+# Données Locales (Très important)
+# ==============================
+# On ignore le contenu des dossiers de data, mais on garde l'arborescence grâce au .gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# ==============================
+# Artefacts Machine Learning
+# ==============================
+# On ne pousse pas les modèles XGBoost ou KMeans générés localement
+ml_models/artifacts/*
+!ml_models/artifacts/.gitkeep
+
+# ==============================
+# Logs et IDE
+# ==============================
+*.log
+.vscode/
+.idea/
+.ipynb_checkpoints/# ==============================
+# Environnement et Sécurité
+# ==============================
+.env
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==============================
+# Données Locales (Très important)
+# ==============================
+# On ignore le contenu des dossiers de data, mais on garde l'arborescence grâce au .gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# ==============================
+# Artefacts Machine Learning
+# ==============================
+# On ne pousse pas les modèles XGBoost ou KMeans générés localement
+ml_models/artifacts/*
+!ml_models/artifacts/.gitkeep
+
+# ==============================
+# Logs et IDE
+# ==============================
+*.log
+.vscode/
+.idea/
+.ipynb_checkpoints/
