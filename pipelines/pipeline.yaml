@@ -1,0 +1,420 @@
+# PIPELINE DEFINITION
+# Name: ecommerce-intelligence-pipeline
+# Description: Run preprocessing, parallel training, and top-k scoring.
+# Inputs:
+#    enriched_products_uri: str [Default: 'data/processed/enriched_products.json']
+components:
+  comp-importer:
+    executorLabel: exec-importer
+    inputDefinitions:
+      parameters:
+        uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-preprocess-data-op:
+    executorLabel: exec-preprocess-data-op
+    inputDefinitions:
+      artifacts:
+        enriched_products:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        ml_ready_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-score-top-products-op:
+    executorLabel: exec-score-top-products-op
+    inputDefinitions:
+      artifacts:
+        enriched_products:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        kmeans_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        kmeans_scaler:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        ml_ready_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        supervised_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        top_k_products:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-train-supervised-op:
+    executorLabel: exec-train-supervised-op
+    inputDefinitions:
+      artifacts:
+        ml_ready_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        supervised_metrics:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        supervised_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-train-unsupervised-op:
+    executorLabel: exec-train-unsupervised-op
+    inputDefinitions:
+      artifacts:
+        ml_ready_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        kmeans_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        kmeans_scaler:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        unsupervised_metrics:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-importer:
+      importer:
+        artifactUri:
+          runtimeParameter: uri
+        typeSchema:
+          schemaTitle: system.Dataset
+          schemaVersion: 0.0.1
+    exec-preprocess-data-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - preprocess_data_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ 'scikit-learn' 'xgboost' 'joblib'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.16.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef preprocess_data_op(\n    enriched_products: Input[Dataset],\n\
+          \    ml_ready_data: Output[Dataset],\n) -> None:\n    \"\"\"Preprocess enriched\
+          \ products into an ML-ready tabular dataset.\"\"\"\n    import logging\n\
+          \n    import pandas as pd\n    from ml_models import preprocessing\n\n \
+          \   logging.basicConfig(\n        level=logging.INFO,\n        format=\"\
+          %(asctime)s %(levelname)s %(name)s %(message)s\",\n    )\n\n    input_path\
+          \ = Path(enriched_products.path)\n    output_path = Path(ml_ready_data.path)\n\
+          \    output_path.parent.mkdir(parents=True, exist_ok=True)\n\n    dataframe\
+          \ = preprocessing.load_enriched_dataframe(input_path)\n    preprocessing.validate_columns(dataframe,\
+          \ preprocessing.REQUIRED_COLUMNS)\n    processed = preprocessing.preprocess_features(dataframe)\n\
+          \    processed.to_csv(output_path, index=False)\n\n"
+        image: python:3.11
+    exec-score-top-products-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - score_top_products_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ 'scikit-learn' 'xgboost' 'joblib'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.16.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef score_top_products_op(\n    enriched_products: Input[Dataset],\n\
+          \    ml_ready_data: Input[Dataset],\n    supervised_model: Input[Model],\n\
+          \    kmeans_model: Input[Model],\n    kmeans_scaler: Input[Model],\n   \
+          \ top_k_products: Output[Dataset],\n) -> None:\n    \"\"\"Score products\
+          \ with supervised + unsupervised signals and output top-k JSON.\"\"\"\n\
+          \    import logging\n\n    import joblib\n    import pandas as pd\n    from\
+          \ xgboost import XGBClassifier\n    from ml_models import scoring\n\n  \
+          \  logging.basicConfig(\n        level=logging.INFO,\n        format=\"\
+          %(asctime)s %(levelname)s %(name)s %(message)s\",\n    )\n\n    enriched_records\
+          \ = scoring.load_json_records(Path(enriched_products.path))\n    enriched_df\
+          \ = pd.DataFrame(enriched_records)\n\n    ml_ready_df = scoring.load_ml_ready(Path(ml_ready_data.path))\n\
+          \    if \"reviews\" not in ml_ready_df.columns and \"review_count\" in ml_ready_df.columns:\n\
+          \        ml_ready_df[\"reviews\"] = pd.to_numeric(ml_ready_df[\"review_count\"\
+          ], errors=\"coerce\").fillna(0)\n\n    model = XGBClassifier()\n    model.load_model(supervised_model.path)\n\
+          \n    scaler = joblib.load(kmeans_scaler.path)\n    kmeans = joblib.load(kmeans_model.path)\n\
+          \n    supervised_features = scoring.prepare_supervised_features(ml_ready_df)\n\
+          \    ml_ready_df[\"top_product_probability\"] = model.predict_proba(supervised_features)[:,\
+          \ 1]\n\n    clustering_features = (\n        ml_ready_df.loc[:, [\"price\"\
+          , \"rating\", \"reviews\"]]\n        .apply(pd.to_numeric, errors=\"coerce\"\
+          )\n        .fillna(0)\n    )\n    scaled = scaler.transform(clustering_features)\n\
+          \    ml_ready_df[\"cluster_id\"] = kmeans.predict(scaled)\n\n    ml_ready_df[\"\
+          cluster_quality_score\"] = scoring.apply_cluster_quality_signal(ml_ready_df)\n\
+          \    ml_ready_df[\"rating\"] = pd.to_numeric(ml_ready_df[\"rating\"], errors=\"\
+          coerce\").fillna(0)\n    ml_ready_df[\"reviews\"] = pd.to_numeric(ml_ready_df[\"\
+          reviews\"], errors=\"coerce\").fillna(0)\n    ml_ready_df[\"in_stock_flag\"\
+          ] = (\n        ml_ready_df.get(\"stock_in_stock\", pd.Series([0] * len(ml_ready_df))).astype(float)\n\
+          \    )\n\n    ml_ready_df[\"final_score\"] = (\n        ml_ready_df[\"top_product_probability\"\
+          ] * 0.60\n        + ml_ready_df[\"cluster_quality_score\"] * 0.15\n    \
+          \    + ml_ready_df[\"rating\"] * 0.15\n        + ml_ready_df[\"reviews\"\
+          ] * 0.05\n        + ml_ready_df[\"in_stock_flag\"] * 0.05\n    )\n\n   \
+          \ enriched_lookup = enriched_df.set_index(\"product_id\").to_dict(orient=\"\
+          index\") if not enriched_df.empty else {}\n\n    ranked = ml_ready_df.sort_values(\"\
+          final_score\", ascending=False).head(scoring.TOP_K).copy()\n    ranked[\"\
+          product_id\"] = ranked[\"product_id\"].astype(str)\n\n    output_records:\
+          \ list[dict] = []\n    for _, row in ranked.iterrows():\n        product_id\
+          \ = row[\"product_id\"]\n        base_record = enriched_lookup.get(product_id,\
+          \ {\"product_id\": product_id})\n\n        enriched_record = {\n       \
+          \     **base_record,\n            \"top_product_probability\": float(row[\"\
+          top_product_probability\"]),\n            \"cluster_id\": int(row[\"cluster_id\"\
+          ]),\n            \"cluster_quality_score\": float(row[\"cluster_quality_score\"\
+          ]),\n            \"final_score\": float(row[\"final_score\"]),\n       \
+          \ }\n        output_records.append(enriched_record)\n\n    output_path =\
+          \ Path(top_k_products.path)\n    output_path.parent.mkdir(parents=True,\
+          \ exist_ok=True)\n    output_path.write_text(json.dumps(output_records,\
+          \ indent=2), encoding=\"utf-8\")\n\n"
+        image: python:3.11
+    exec-train-supervised-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_supervised_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ 'scikit-learn' 'xgboost' 'joblib'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.16.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_supervised_op(\n    ml_ready_data: Input[Dataset],\n  \
+          \  supervised_model: Output[Model],\n    supervised_metrics: Output[Dataset],\n\
+          ) -> None:\n    \"\"\"Train supervised XGBoost model and persist model +\
+          \ metrics artifacts.\"\"\"\n    import logging\n\n    import pandas as pd\n\
+          \    from sklearn.model_selection import train_test_split\n    from ml_models\
+          \ import supervised\n\n    logging.basicConfig(\n        level=logging.INFO,\n\
+          \        format=\"%(asctime)s %(levelname)s %(name)s %(message)s\",\n  \
+          \  )\n\n    dataset_path = Path(ml_ready_data.path)\n    model_path = Path(supervised_model.path)\n\
+          \    metrics_path = Path(supervised_metrics.path)\n\n    model_path.parent.mkdir(parents=True,\
+          \ exist_ok=True)\n    metrics_path.parent.mkdir(parents=True, exist_ok=True)\n\
+          \n    dataframe = pd.read_csv(dataset_path)\n    if dataframe.empty:\n \
+          \       raise ValueError(\"ML-ready dataset is empty.\")\n\n    X, y = supervised.build_feature_matrix(dataframe)\n\
+          \n    min_class_count = int(y.value_counts().min())\n    class_count = int(y.nunique())\n\
+          \    estimated_test_count = max(1, int(round(len(y) * 0.2)))\n    can_stratify\
+          \ = min_class_count >= 2 and estimated_test_count >= class_count\n    stratify_target\
+          \ = y if can_stratify else None\n\n    X_train, X_test, y_train, y_test\
+          \ = train_test_split(\n        X,\n        y,\n        test_size=0.2,\n\
+          \        random_state=42,\n        stratify=stratify_target,\n    )\n\n\
+          \    model = supervised.train_model(X_train, y_train)\n    metrics = supervised.evaluate_model(model,\
+          \ X_test, y_test)\n\n    model.save_model(str(model_path))\n    metrics_path.write_text(json.dumps(metrics,\
+          \ indent=2), encoding=\"utf-8\")\n\n"
+        image: python:3.11
+    exec-train-unsupervised-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_unsupervised_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ 'scikit-learn' 'xgboost' 'joblib'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.16.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_unsupervised_op(\n    ml_ready_data: Input[Dataset],\n\
+          \    kmeans_model: Output[Model],\n    kmeans_scaler: Output[Model],\n \
+          \   unsupervised_metrics: Output[Dataset],\n) -> None:\n    \"\"\"Train\
+          \ unsupervised KMeans model and persist scaler/model/metrics artifacts.\"\
+          \"\"\n    import logging\n\n    import joblib\n    import pandas as pd\n\
+          \    from ml_models import unsupervised\n\n    logging.basicConfig(\n  \
+          \      level=logging.INFO,\n        format=\"%(asctime)s %(levelname)s %(name)s\
+          \ %(message)s\",\n    )\n\n    dataset_path = Path(ml_ready_data.path)\n\
+          \    model_path = Path(kmeans_model.path)\n    scaler_path = Path(kmeans_scaler.path)\n\
+          \    metrics_path = Path(unsupervised_metrics.path)\n\n    model_path.parent.mkdir(parents=True,\
+          \ exist_ok=True)\n    scaler_path.parent.mkdir(parents=True, exist_ok=True)\n\
+          \    metrics_path.parent.mkdir(parents=True, exist_ok=True)\n\n    dataframe\
+          \ = pd.read_csv(dataset_path)\n    scaler, model, metrics = unsupervised.train_clustering(dataframe)\n\
+          \n    joblib.dump(model, model_path)\n    joblib.dump(scaler, scaler_path)\n\
+          \    metrics_path.write_text(json.dumps(metrics, indent=2), encoding=\"\
+          utf-8\")\n\n"
+        image: python:3.11
+pipelineInfo:
+  description: Run preprocessing, parallel training, and top-k scoring.
+  name: ecommerce-intelligence-pipeline
+root:
+  dag:
+    tasks:
+      importer:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-importer
+        inputs:
+          parameters:
+            uri:
+              componentInputParameter: enriched_products_uri
+        taskInfo:
+          name: importer
+      preprocess-data-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-preprocess-data-op
+        dependentTasks:
+        - importer
+        inputs:
+          artifacts:
+            enriched_products:
+              taskOutputArtifact:
+                outputArtifactKey: artifact
+                producerTask: importer
+        taskInfo:
+          name: preprocess-data-op
+      score-top-products-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-score-top-products-op
+        dependentTasks:
+        - importer
+        - preprocess-data-op
+        - train-supervised-op
+        - train-unsupervised-op
+        inputs:
+          artifacts:
+            enriched_products:
+              taskOutputArtifact:
+                outputArtifactKey: artifact
+                producerTask: importer
+            kmeans_model:
+              taskOutputArtifact:
+                outputArtifactKey: kmeans_model
+                producerTask: train-unsupervised-op
+            kmeans_scaler:
+              taskOutputArtifact:
+                outputArtifactKey: kmeans_scaler
+                producerTask: train-unsupervised-op
+            ml_ready_data:
+              taskOutputArtifact:
+                outputArtifactKey: ml_ready_data
+                producerTask: preprocess-data-op
+            supervised_model:
+              taskOutputArtifact:
+                outputArtifactKey: supervised_model
+                producerTask: train-supervised-op
+        taskInfo:
+          name: score-top-products-op
+      train-supervised-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-supervised-op
+        dependentTasks:
+        - preprocess-data-op
+        inputs:
+          artifacts:
+            ml_ready_data:
+              taskOutputArtifact:
+                outputArtifactKey: ml_ready_data
+                producerTask: preprocess-data-op
+        taskInfo:
+          name: train-supervised-op
+      train-unsupervised-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-unsupervised-op
+        dependentTasks:
+        - preprocess-data-op
+        inputs:
+          artifacts:
+            ml_ready_data:
+              taskOutputArtifact:
+                outputArtifactKey: ml_ready_data
+                producerTask: preprocess-data-op
+        taskInfo:
+          name: train-unsupervised-op
+  inputDefinitions:
+    parameters:
+      enriched_products_uri:
+        defaultValue: data/processed/enriched_products.json
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.16.0
