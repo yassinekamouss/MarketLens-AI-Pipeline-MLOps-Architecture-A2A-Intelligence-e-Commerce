@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - github.com/kubeflow/pipelines/manifests/kustomize/env/platform-agnostic?ref=2.5.0
+
+images:
+  # La correction critique pour Minio
+  - name: gcr.io/ml-pipeline/minio
+    newName: quay.io/minio/minio
+    newTag: RELEASE.2023-05-04T21-44-30Z
+
+  # Pour MySQL (vérifie si c'est gcr.io/ml-pipeline/mysql dans ton manifest)
+  - name: mysql
+    newName: mysql
+    newTag: "8.0.26"
+
+  # Les autres services (déjà corrects si le chemin est complet)
+  - name: gcr.io/ml-pipeline/api-server
+    newName: ghcr.io/kubeflow/kfp-api-server
+    newTag: "2.5.0"
+  - name: gcr.io/ml-pipeline/persistence-agent
+    newName: ghcr.io/kubeflow/kfp-persistence-agent
+    newTag: "2.5.0"
+  - name: gcr.io/ml-pipeline/scheduledworkflow
+    newName: ghcr.io/kubeflow/kfp-scheduledworkflow
+    newTag: "2.5.0"
+  - name: gcr.io/ml-pipeline/frontend
+    newName: ghcr.io/kubeflow/kfp-frontend
+    newTag: "2.5.0"
+  - name: gcr.io/ml-pipeline/cache-server
+    newName: ghcr.io/kubeflow/kfp-cache-server
+    newTag: "2.5.0"
+  - name: gcr.io/ml-pipeline/metadata-writer
+    newName: ghcr.io/kubeflow/kfp-metadata-writer
+    newTag: "2.5.0"
+  - name: gcr.io/ml-pipeline/visualization-server
+    newName: ghcr.io/kubeflow/kfp-visualization-server
+    newTag: "2.5.0"
