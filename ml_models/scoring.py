@@ -28,7 +28,7 @@ def get_project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def get_paths(project_root: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
+def get_paths(project_root: Path) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
     """Return input and artifact paths for scoring flow."""
     enriched_path = project_root / "data" / "processed" / "enriched_products.json"
     ml_ready_path = project_root / "data" / "processed" / "ml_ready_data.csv"
@@ -37,11 +37,12 @@ def get_paths(project_root: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
     xgb_path = artifacts_dir / "xgb_model.json"
     scaler_path = artifacts_dir / "kmeans_scaler.joblib"
     kmeans_path = artifacts_dir / "kmeans_model.joblib"
+    pca_path = artifacts_dir / "pca_model.joblib"
 
     output_path = project_root / "data" / "processed" / "top_k_products.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    return enriched_path, ml_ready_path, xgb_path, scaler_path, kmeans_path, output_path
+    return enriched_path, ml_ready_path, xgb_path, scaler_path, kmeans_path, pca_path, output_path
 
 
 def load_json_records(path: Path) -> List[dict]:
@@ -107,6 +108,7 @@ def run() -> None:
         xgb_path,
         scaler_path,
         kmeans_path,
+        pca_path,
         output_path,
     ) = get_paths(project_root)
 
@@ -123,6 +125,7 @@ def run() -> None:
 
         scaler = joblib.load(scaler_path)
         kmeans = joblib.load(kmeans_path)
+        pca = joblib.load(pca_path)
 
         supervised_features = prepare_supervised_features(ml_ready_df)
         ml_ready_df["top_product_probability"] = model.predict_proba(supervised_features)[:, 1]
@@ -134,6 +137,10 @@ def run() -> None:
         )
         scaled = scaler.transform(clustering_features)
         ml_ready_df["cluster_id"] = kmeans.predict(scaled)
+        
+        pca_features = pca.transform(scaled)
+        ml_ready_df["pca_1"] = pca_features[:, 0]
+        ml_ready_df["pca_2"] = pca_features[:, 1]
 
         ml_ready_df["cluster_quality_score"] = apply_cluster_quality_signal(ml_ready_df)
         ml_ready_df["rating"] = pd.to_numeric(ml_ready_df["rating"], errors="coerce").fillna(0)
@@ -166,6 +173,8 @@ def run() -> None:
                 "cluster_id": int(row["cluster_id"]),
                 "cluster_quality_score": float(row["cluster_quality_score"]),
                 "final_score": float(row["final_score"]),
+                "pca_1": float(row["pca_1"]),
+                "pca_2": float(row["pca_2"]),
             }
             output_records.append(enriched_record)
 

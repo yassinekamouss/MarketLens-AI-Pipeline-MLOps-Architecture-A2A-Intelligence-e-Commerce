@@ -200,6 +200,69 @@ def render_scatter_plot(df: pd.DataFrame) -> None:
 
     st.plotly_chart(fig, use_container_width=True)
 
+def render_pca_plot(df: pd.DataFrame) -> None:
+    """Render PCA cluster analysis chart."""
+    st.subheader("Analyse des Clusters (PCA)")
+    
+    required_columns = ["pca_1", "pca_2", "cluster_id"]
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        st.info(f"PCA plot requires columns: {', '.join(required_columns)}. Missing: {', '.join(missing_columns)}")
+        return
+        
+    hover_columns = ["name"] if "name" in df.columns else []
+    
+    # Ensure cluster_id is treated as discrete category
+    plot_df = df.copy()
+    plot_df["cluster_id"] = plot_df["cluster_id"].astype(str)
+    
+    fig = px.scatter(
+        plot_df,
+        x="pca_1",
+        y="pca_2",
+        color="cluster_id",
+        hover_data=hover_columns,
+        template="plotly_dark",
+        title="Répartition des produits (PCA 2D)",
+        labels={"pca_1": "Composante Principale 1", "pca_2": "Composante Principale 2", "cluster_id": "Cluster"}
+    )
+    fig.update_traces(marker=dict(size=12, opacity=0.8, line=dict(width=1, color="DarkSlateGrey")))
+    st.plotly_chart(fig, use_container_width=True)
+
+def render_association_rules() -> None:
+    """Render association rules section."""
+    st.subheader("Recommandations & Comportements d'achat")
+    
+    rules_path = Path(__file__).resolve().parents[1] / "data" / "processed" / "association_rules.json"
+    if not rules_path.exists():
+        st.info("Aucune règle d'association générée.")
+        return
+        
+    import json
+    try:
+        rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        st.error("Erreur lors de la lecture des règles d'association.")
+        return
+        
+    if not rules:
+        st.info("Aucune règle trouvée.")
+        return
+        
+    table_data = []
+    for rule in rules[:15]:  # Top 15
+        ant = ", ".join(rule.get("antecedents_names", rule.get("antecedents", [])))
+        con = ", ".join(rule.get("consequents_names", rule.get("consequents", [])))
+        conf = rule.get("confidence", 0) * 100
+        lift = rule.get("lift", 0)
+        table_data.append({
+            "Règle": f"Si un client achète [{ant}], il a {conf:.1f}% de chances d'acheter [{con}]",
+            "Confiance": f"{conf:.1f}%",
+            "Lift": f"{lift:.2f}"
+        })
+        
+    st.table(pd.DataFrame(table_data))
+
 
 st.markdown('<div class="dashboard-title">Smart eCommerce Intelligence Dashboard</div>', unsafe_allow_html=True)
 st.markdown(
@@ -223,6 +286,15 @@ render_kpis(filtered_data_df)
 st.divider()
 render_scatter_plot(filtered_data_df)
 st.divider()
+
+# New PCA section
+render_pca_plot(filtered_data_df)
+st.divider()
+
+# New Association Rules section
+render_association_rules()
+st.divider()
+
 st.subheader("Top Products Data")
 display_data_df = build_display_dataframe(filtered_data_df)
 st.dataframe(display_data_df, use_container_width=True)

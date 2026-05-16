@@ -10,6 +10,7 @@ from typing import Dict
 import joblib
 import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
@@ -30,7 +31,7 @@ def get_project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def get_paths(project_root: Path) -> tuple[Path, Path, Path, Path]:
+def get_paths(project_root: Path) -> tuple[Path, Path, Path, Path, Path]:
     """Return input and output artifact paths for clustering flow."""
     input_path = project_root / "data" / "processed" / "ml_ready_data.csv"
     artifacts_dir = project_root / "ml_models" / "artifacts"
@@ -38,8 +39,9 @@ def get_paths(project_root: Path) -> tuple[Path, Path, Path, Path]:
 
     scaler_path = artifacts_dir / "kmeans_scaler.joblib"
     model_path = artifacts_dir / "kmeans_model.joblib"
+    pca_path = artifacts_dir / "pca_model.joblib"
     metrics_path = artifacts_dir / "unsupervised_metrics.json"
-    return input_path, scaler_path, model_path, metrics_path
+    return input_path, scaler_path, model_path, pca_path, metrics_path
 
 
 def load_data(csv_path: Path) -> pd.DataFrame:
@@ -58,8 +60,8 @@ def load_data(csv_path: Path) -> pd.DataFrame:
     return dataframe
 
 
-def train_clustering(dataframe: pd.DataFrame) -> tuple[StandardScaler, KMeans, Dict[str, float]]:
-    """Train StandardScaler + KMeans(3) and compute silhouette score."""
+def train_clustering(dataframe: pd.DataFrame) -> tuple[StandardScaler, KMeans, PCA, Dict[str, float]]:
+    """Train StandardScaler + KMeans(3) + PCA(2) and compute silhouette score."""
     numerical = dataframe.loc[:, NUMERIC_CLUSTER_FEATURES].apply(pd.to_numeric, errors="coerce").fillna(0)
 
     if len(numerical) < 4:
@@ -70,28 +72,33 @@ def train_clustering(dataframe: pd.DataFrame) -> tuple[StandardScaler, KMeans, D
 
     model = KMeans(n_clusters=3, random_state=42, n_init=10)
     labels = model.fit_predict(scaled)
+    
+    pca = PCA(n_components=2, random_state=42)
+    pca.fit(scaled)
 
     score = float(silhouette_score(scaled, labels))
     metrics: Dict[str, float] = {
         "silhouette_score": score,
         "n_clusters": 3.0,
         "n_samples": float(len(numerical)),
+        "pca_explained_variance_ratio_sum": float(sum(pca.explained_variance_ratio_)),
     }
 
-    return scaler, model, metrics
+    return scaler, model, pca, metrics
 
 
 def run() -> None:
     """Execute unsupervised model training and persist artifacts."""
     project_root = get_project_root()
-    input_path, scaler_path, model_path, metrics_path = get_paths(project_root)
+    input_path, scaler_path, model_path, pca_path, metrics_path = get_paths(project_root)
 
     try:
         dataframe = load_data(input_path)
-        scaler, model, metrics = train_clustering(dataframe)
+        scaler, model, pca, metrics = train_clustering(dataframe)
 
         joblib.dump(scaler, scaler_path)
         joblib.dump(model, model_path)
+        joblib.dump(pca, pca_path)
         metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     except (FileNotFoundError, ValueError) as exc:
         LOGGER.error("unsupervised_training_failed", extra={"error": str(exc)})
@@ -102,6 +109,7 @@ def run() -> None:
         extra={
             "scaler_path": str(scaler_path),
             "model_path": str(model_path),
+            "pca_path": str(pca_path),
             "metrics_path": str(metrics_path),
             "silhouette_score": metrics["silhouette_score"],
         },
