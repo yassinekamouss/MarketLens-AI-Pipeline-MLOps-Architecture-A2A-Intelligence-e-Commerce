@@ -11,6 +11,7 @@ from typing import List
 
 from scraping.schemas import Product
 from scraping.shopify_agent import ShopifyAgent, ShopifyAgentError
+from scraping.woocommerce_agent import WooCommerceAgent, WooCommerceAgentError
 
 
 def configure_logging() -> None:
@@ -30,14 +31,28 @@ def get_output_path() -> Path:
 
 
 async def run() -> None:
-    """Scrape a sample Shopify store and persist validated data to disk."""
-    store_url = os.environ.get("SHOPIFY_STORE_URL", "https://allbirds.com")
-    agent = ShopifyAgent()
+    """Scrape a sample store dynamically based on platform and persist validated data to disk."""
+    store_platform = os.environ.get("STORE_PLATFORM", "shopify").lower()
+    store_url = os.environ.get("STORE_URL", "https://allbirds.com")
+
+    if store_platform == "shopify":
+        agent = ShopifyAgent()
+    elif store_platform == "woocommerce":
+        agent = WooCommerceAgent()
+    else:
+        logging.getLogger(__name__).error(
+            "unsupported_platform",
+            extra={"store_platform": store_platform}
+        )
+        raise ValueError(f"Unsupported STORE_PLATFORM: {store_platform}")
 
     try:
-        products: List[Product] = await agent.scrape_store(store_url)
-    except ShopifyAgentError as exc:
-        logging.getLogger(__name__).error("scrape_failed", extra={"error": str(exc)})
+        if store_platform == "shopify":
+            products: List[Product] = await agent.scrape_store(store_url)
+        else: # woocommerce
+            products: List[Product] = await agent.scrape_store(store_url)
+    except (ShopifyAgentError, WooCommerceAgentError) as exc:
+        logging.getLogger(__name__).error("scrape_failed", extra={"error": str(exc), "platform": store_platform})
         raise
 
     output_path = get_output_path()
@@ -46,7 +61,7 @@ async def run() -> None:
 
     logging.getLogger(__name__).info(
         "sample_output_written",
-        extra={"store": store_url, "count": len(products), "path": str(output_path)},
+        extra={"store": store_url, "platform": store_platform, "count": len(products), "path": str(output_path)},
     )
 
 
