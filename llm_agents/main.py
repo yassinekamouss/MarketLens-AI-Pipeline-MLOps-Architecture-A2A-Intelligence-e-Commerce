@@ -51,8 +51,8 @@ def get_paths(project_root: Path) -> tuple[Path, Path]:
     return raw_path, output_path
 
 
-def load_products(raw_path: Path, limit: int = 5) -> List[Product]:
-    """Load and validate the first N products from raw scraped JSON."""
+def load_products(raw_path: Path) -> List[Product]:
+    """Load and validate products from raw scraped JSON."""
     if not raw_path.exists():
         raise FileNotFoundError(f"Raw products file does not exist: {raw_path}")
 
@@ -61,7 +61,7 @@ def load_products(raw_path: Path, limit: int = 5) -> List[Product]:
         raise ValueError("Expected sample_products.json to contain a JSON array.")
 
     validated_products: List[Product] = []
-    for idx, item in enumerate(payload[:limit]):
+    for idx, item in enumerate(payload):
         try:
             validated_products.append(Product.model_validate(item))
         except ValidationError as exc:
@@ -74,7 +74,7 @@ def load_products(raw_path: Path, limit: int = 5) -> List[Product]:
 
 
 async def run() -> None:
-    """Execute a bounded batch enrichment and persist processed output."""
+    """Execute batch enrichment and persist processed output with checkpointing."""
     project_root = Path(__file__).resolve().parents[1]
     load_env_file(project_root)
 
@@ -88,7 +88,7 @@ async def run() -> None:
         return
 
     try:
-        products = load_products(raw_path=raw_path, limit=5)
+        products = load_products(raw_path=raw_path)
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
         LOGGER.error("failed_to_load_raw_products", extra={"error": str(exc)})
         return
@@ -97,28 +97,46 @@ async def run() -> None:
         LOGGER.warning("no_valid_products_to_enrich")
         return
 
-    try:
-        agent = DataEnrichmentAgent()
-        enriched_products, errors = await agent.enrich_batch(products, max_concurrency=3)
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.exception("enrichment_pipeline_failed", extra={"error": str(exc)})
-        return
+    agent = DataEnrichmentAgent()
+    all_enriched_products = []
+    all_errors = []
+    
+    batch_size = 50
+    total_products = len(products)
+    total_batches = (total_products + batch_size - 1) // batch_size
 
-    output_payload = [item.model_dump(mode="json") for item in enriched_products]
-    output_path.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+    for i in range(0, total_products, batch_size):
+        batch_num = (i // batch_size) + 1
+        LOGGER.info(f"Traitement du lot {batch_num}/{total_batches}...")
+        
+        batch = products[i:i + batch_size]
+        
+        try:
+            enriched_batch, errors = await agent.enrich_batch(batch, max_concurrency=3)
+            all_enriched_products.extend(enriched_batch)
+            all_errors.extend(errors)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception("enrichment_batch_failed", extra={"batch": batch_num, "error": str(exc)})
+
+        # Checkpointing
+        output_payload = [item.model_dump(mode="json") for item in all_enriched_products]
+        output_path.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+        
+        if batch_num < total_batches:
+            await asyncio.sleep(1)
 
     LOGGER.info(
         "enrichment_completed",
         extra={
             "input_count": len(products),
-            "enriched_count": len(enriched_products),
-            "error_count": len(errors),
+            "enriched_count": len(all_enriched_products),
+            "error_count": len(all_errors),
             "output_path": str(output_path),
         },
     )
 
-    if errors:
-        LOGGER.warning("enrichment_partial_failures", extra={"errors": errors})
+    if all_errors:
+        LOGGER.warning("enrichment_partial_failures", extra={"errors": all_errors})
 
 
 if __name__ == "__main__":

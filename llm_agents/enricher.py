@@ -6,11 +6,18 @@ import asyncio
 import json
 import logging
 import os
-from typing import Dict, List, Sequence, Tuple
+from pathlib import Path
+from typing import Dict, List, Sequence, Tuple, Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import ValidationError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from llm_agents.schemas import EnrichedProduct
 from scraping.schemas import Product
@@ -34,7 +41,7 @@ class DataEnrichmentAgent:
         model_name: str | None = None,
         temperature: float = 0.0,
     ) -> None:
-        """Initialize the Gemini-backed structured output chain."""
+        """Initialize the Gemini-backed structured output chain and local cache."""
         google_api_key = os.environ.get("GOOGLE_API_KEY")
         if not google_api_key:
             raise ValueError(
@@ -72,15 +79,59 @@ class DataEnrichmentAgent:
         )
 
         self._chain = prompt | llm.with_structured_output(EnrichedProduct)
+        
+        # Cache initialization
+        project_root = Path(__file__).resolve().parents[1]
+        self._cache_path = project_root / "data" / "processed" / "llm_cache.json"
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_lock = asyncio.Lock()
+        self._cache: Dict[str, dict] = self._load_cache()
 
-    async def enrich_product(self, product: Product) -> EnrichedProduct:
-        """Enrich a single product and validate the output against EnrichedProduct."""
+    def _load_cache(self) -> Dict[str, dict]:
+        """Load cache from disk."""
+        if self._cache_path.exists():
+            try:
+                content = json.loads(self._cache_path.read_text(encoding="utf-8"))
+                if isinstance(content, dict):
+                    return content
+            except json.JSONDecodeError:
+                LOGGER.warning("Cache file corrupted, starting fresh.")
+        return {}
+
+    async def _save_cache_entry(self, product_id: str, data: dict) -> None:
+        """Save a single entry to memory and asynchronously to disk."""
+        async with self._cache_lock:
+            self._cache[product_id] = data
+            self._cache_path.write_text(json.dumps(self._cache, indent=2), encoding="utf-8")
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=2, max=60),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+    )
+    async def _call_llm(self, product: Product) -> EnrichedProduct:
+        """Call the LLM with retry logic."""
         return await self._chain.ainvoke(
             {
                 "allowed_categories": ", ".join(_ALLOWED_CATEGORIES),
                 "product_json": json.dumps(product.model_dump(mode="json"), ensure_ascii=False),
             }
         )
+
+    async def enrich_product(self, product: Product) -> EnrichedProduct:
+        """Enrich a single product, using cache if available."""
+        product_id = product.product_id
+        
+        if product_id in self._cache:
+            try:
+                return EnrichedProduct.model_validate(self._cache[product_id])
+            except ValidationError:
+                LOGGER.warning(f"Invalid cache entry for {product_id}, forcing re-enrichment.")
+                
+        enriched = await self._call_llm(product)
+        await self._save_cache_entry(product_id, enriched.model_dump(mode="json"))
+        return enriched
 
     async def enrich_batch(
         self,
