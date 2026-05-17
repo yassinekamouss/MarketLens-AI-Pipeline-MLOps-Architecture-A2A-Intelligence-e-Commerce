@@ -78,9 +78,9 @@ Fonctionnalités clés:
 ## ⚙️ Prérequis & Installation (DevOps Focus)
 
 ### Prérequis
-- Python 3.x
+- Python 3.10+
 - Docker
-- Kubernetes local (Minikube)
+- Kubernetes local via Minikube 1.33+ (ou équivalent compatible)
 - kubectl
 - accès réseau aux APIs cibles et au provider LLM
 
