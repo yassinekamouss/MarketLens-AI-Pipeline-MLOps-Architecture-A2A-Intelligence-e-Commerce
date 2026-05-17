@@ -1,128 +1,237 @@
-# 🛒 Smart eCommerce Intelligence
+# Smart eCommerce Intelligence Platform
 
-> **An End-to-End Autonomous eCommerce Intelligence & MLOps Platform**  
-> *From automated web scraping to ML-driven behavioral analysis and BI visualization.*
+> **An End-to-End Autonomous eCommerce Intelligence & MLOps Platform**
+> From automated multi-platform web scraping to ML-driven behavioral analysis, LLM semantic enrichment, and real-time BI visualization — all orchestrated on Kubernetes.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white)](https://www.python.org)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Production%20Ready-326ce5.svg?logo=kubernetes&logoColor=white)](https://kubernetes.io)
-[![Kubeflow](https://img.shields.io/badge/Kubeflow-MLOps-blue.svg?logo=kubeflow&logoColor=white)](https://www.kubeflow.org/)
-[![LangChain](https://img.shields.io/badge/LangChain-Agents-green.svg)](https://langchain.com)
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-LLM-black.svg)](https://deepseek.com)
-[![Flask](https://img.shields.io/badge/Flask-Backend-lightgrey.svg?logo=flask)](https://flask.palletsprojects.com/)
-[![MinIO](https://img.shields.io/badge/MinIO-Object%20Storage-red.svg?logo=minio)](https://min.io/)
+[![MLOps Pipeline](https://img.shields.io/badge/MLOps-Kubeflow-blue.svg?style=flat-square&logo=kubernetes)](https://kubeflow.org)
+[![LLM Backend](https://img.shields.io/badge/LLM-DeepSeek--Chat-orange.svg?style=flat-square)](https://deepseek.com)
+[![Architecture](https://img.shields.io/badge/Architecture-Distributed_A2A-green.svg?style=flat-square)]()
+[![Flask](https://img.shields.io/badge/Flask-Backend-000000?style=flat-square&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![Academic](https://img.shields.io/badge/FST_Tanger-LSI_2-red.svg?style=flat-square)](https://www.fstt.ac.ma)
+
+---
+
+## Table of Contents
+
+- [Overview & Business Value](#-overview--business-value)
+- [System Architecture](#-system-architecture)
+- [MLOps Pipeline (DAG)](#-mlops-pipeline-dag)
+- [BI Dashboard](#-bi-dashboard)
+- [Prerequisites & Installation](#-prerequisites--installation)
+- [Project Structure](#-project-structure)
+- [Authors & Contributors](#-authors--contributors)
 
 ---
 
 ## 🎯 Overview & Business Value
 
-**Smart eCommerce Intelligence** is a comprehensive, scalable platform designed to automate the extraction, semantic enrichment, and machine learning analysis of e-commerce product data. 
+**Smart eCommerce Intelligence** is a production-grade platform that automates the full data lifecycle for e-commerce competitive intelligence: **ingestion → enrichment → modeling → visualization**.
 
-By leveraging autonomous Agent-to-Agent (A2A) scraping, Model Context Protocol (MCP) for secure LLM integration, and Kubernetes-native MLOps orchestration, the system delivers actionable insights ranging from dynamic product scoring to behavioral predictive modeling. 
+The system addresses a critical business need — continuously monitoring competitor catalogs, pricing strategies, and product performance across multiple platforms (Shopify, WooCommerce) without manual intervention. It delivers:
 
-**Key Objectives:**
-- **Automated Data Ingestion:** Zero-touch extraction from diverse e-commerce platforms.
-- **Semantic Data Enrichment:** Utilizing DeepSeek LLM for advanced feature engineering and attribute extraction.
-- **Predictive Analytics:** Supervised (XGBoost) and Unsupervised (K-Means/PCA) pipelines to surface Top-K performing products.
-- **Interactive BI:** Real-time dashboards with an integrated AI virtual assistant for data querying.
+| Capability | Description |
+|---|---|
+| **Automated Ingestion** | Zero-touch A2A scraping agents extract structured product data from heterogeneous e-commerce APIs with Playwright fallback for JS-rendered pages. |
+| **Semantic Enrichment** | DeepSeek LLM, exposed through a secure MCP server, transforms raw descriptions into ML-ready features (sentiment, category mapping, attribute extraction). |
+| **Predictive Scoring** | Parallel XGBoost (supervised) and K-Means/PCA (unsupervised) pipelines rank products, detect behavioral segments, and surface Top-K opportunities. |
+| **Actionable BI** | Real-time dashboard with KPI tracking, cluster visualization, and a LangChain-powered conversational assistant for natural-language data queries. |
 
 ---
 
 ## 🏗️ System Architecture
 
+The platform is organized into four decoupled layers, each independently deployable and observable:
+
 ![Architecture Globale](docs/architecture.png)
 
-The application is built on a resilient, microservices-oriented architecture divided into four core layers:
+### 1. A2A Scraping Layer (`/scraping`)
 
-1. **A2A Scraping Layer:** Autonomous agents built to extract data from target eCommerce platforms (Shopify, WooCommerce) with intelligent fallback mechanisms using Playwright for dynamic rendering.
-2. **LLM Enrichment Layer:** Leverages DeepSeek integrated via a secure MCP (Model Context Protocol) server to semantically enrich raw product descriptions into structured, ML-ready features.
-3. **MLOps Orchestration Layer:** Built heavily on **Kubeflow** and **MinIO**. This layer ensures reproducible, scalable model training, tracking artifacts, metrics, and serving deployment graphs natively on Kubernetes.
-4. **BI & Presentation Layer:** A Flask-based backend serving a highly interactive Plotly-driven frontend, complemented by a LangChain-powered conversational UI.
+Autonomous Agent-to-Agent crawlers target Shopify and WooCommerce storefronts:
+
+- **`shopify_agent.py`** — Connects via Storefront API / HTML scraping for product catalogs.
+- **`woocommerce_agent.py`** — Leverages WooCommerce REST API with structured pagination.
+- **Fallback Engine** — Playwright handles JavaScript-rendered pages when static parsing fails.
+- **Schema Validation** — Pydantic models enforce strict data contracts (`schemas.py`).
+
+### 2. LLM Enrichment Layer (`/llm_agents`)
+
+DeepSeek-powered semantic processing behind a secure MCP boundary:
+
+- **`mcp_server.py`** — Model Context Protocol server exposing controlled tools (enrichment, summarization, classification) to the LLM.
+- **`enricher.py`** — LangChain-driven pipeline that transforms raw product text into structured features.
+- **`schemas.py`** — Typed request/response contracts for all MCP tool interactions.
+- **Isolation Principle** — Enforces the Responsible Agent pattern by minimizing the exposed surface area.
+
+### 3. MLOps Orchestration Layer (`/pipelines` + `/ml_models`)
+
+Kubernetes-native ML lifecycle management:
+
+- **Kubeflow Pipelines** — Declarative DAG execution with robust artifact tracking.
+- **Kustomize Overlays** — Infrastructure-as-code for cluster-scoped and platform-agnostic manifests.
+- **MinIO** — Object storage for model artifacts, datasets, and pipeline outputs.
+- **Docker** — Containerized components ensuring highly reproducible environments.
+
+### 4. BI & Presentation Layer (`/frontend`)
+
+Flask backend serving an interactive analytics interface built with custom CSS and native JS:
+
+- **Plotly Visualizations** — Interactive PCA projections, K-Means cluster maps, and pricing distributions.
+- **Real-Time KPIs** — Scraping throughput, model accuracy (F1-score, Silhouette), and Top-K product metrics.
+- **LangChain Chat Assistant** — Natural-language querying over the enriched dataset via DeepSeek AI.
 
 ---
 
 ## ⚙️ MLOps Pipeline (DAG)
 
+The core ML workflow executes as a Directed Acyclic Graph on Kubeflow Pipelines:
+
 ![Pipeline DAG](docs/dag.png)
 
-Our core machine learning workflow is orchestrated as a Directed Acyclic Graph (DAG) executed on Kubeflow Pipelines:
-- **Preprocessing:** Data cleaning, normalization, and semantic mapping.
-- **Parallel Training:**
-  - *Supervised Learning:* XGBoost models predicting product success metrics.
-  - *Unsupervised Learning:* K-Means clustering and PCA for behavioral segmentation and dimensionality reduction.
-- **Scoring Engine:** A unification step that scores and ranks products, calculating the definitive Top-K recommendations and extracting association rules.
+| Stage | Component | Description |
+|---|---|---|
+| **Preprocessing** | `preprocessing.py` | Data cleaning, missing-value imputation (seeded randomness), and semantic feature engineering. |
+| **Supervised Training** | `supervised.py` | XGBoost classifier predicting Top-K probability from pricing, rating, review, and stock features. |
+| **Unsupervised Training** | `unsupervised.py` | K-Means clustering for product segmentation + PCA for dimensionality reduction and visualization. |
+| **Association Rules** | `association_rules.py` | Apriori/FP-Growth algorithm mining frequent itemsets with support, confidence, and lift metrics. |
+| **Scoring Engine** | `scoring.py` | Composite scoring unifying model outputs to produce the final Top-K recommendation table. |
 
 ---
 
-## 📊 Interface and BI Dashboard
+## 📊 BI Dashboard
+
+The interactive analytics interface provides operational visibility across the entire pipeline:
 
 ![Dashboard BI](docs/dashboard.png)
 
-The interactive analytics frontend provides deep operational visibility:
-- **Real-Time KPIs:** Live monitoring of extraction rates, processing times, and accuracy scores.
-- **Advanced Dataviz:** 3D PCA projections and K-Means cluster distributions utilizing Plotly.
-- **AI Virtual Assistant:** A LangChain-driven chat interface allowing users to interrogate the data in natural language.
+- **KPI Cards** — Real-time metrics overview.
+- **PCA Projection** — 2D scatter plot of products in reduced feature space.
+- **K-Means Clusters** — Distribution of product segments (Premium, Discount, Atypical).
+- **Association Rules Explorer** — Interactive table of mined purchasing rules.
+- **Top-K Rankings** — Sorted product table with composite scores.
+- **AI Virtual Assistant** — Conversational interface powered by DeepSeek.
 
 ---
 
-## 🚀 Prerequisites & Installation
+## 🚀 Prerequisites & Installation (DevOps Bootstrap)
 
-### Environment Configuration
-Ensure your environment variables are configured. Create a `.env` file at the root:
+### System Requirements
+
+| Dependency | Minimum Version |
+|---|---|
+| Python | 3.10+ |
+| kubectl | 1.28+ |
+| Minikube | 1.32+ |
+| Docker | 24.0+ |
+| kfp SDK | 2.5.0 |
+
+### Environment Variables
+
+Create a `.env` file at the project root with the following required keys:
+
 ```bash
-# Core LLM Access
+# DeepSeek API Key (Required for semantic enrichment)
 DEEPSEEK_API_KEY="your_deepseek_api_key_here"
 
-# Storage & Infrastructure (Adjust as per your cluster config)
+# MinIO Object Storage Credentials (Optional, if using external storage)
 MINIO_ACCESS_KEY="minioadmin"
 MINIO_SECRET_KEY="minioadmin"
+MINIO_ENDPOINT="localhost:9000"
 ```
 
-### Deployment via Makefile
-The repository utilizes a centralized `Makefile` for streamlined cluster and pipeline lifecycle management.
+### Quick Start (Makefile)
+
+The ̀`Makefile` provides a unified interface for the entire DevOps lifecycle:
 
 ```bash
-# 1. Initialize the Kubernetes cluster (e.g., Minikube/Kind)
+# 1. Provision a local Kubernetes cluster (Minikube)
 make k8s-start
 
-# 2. Deploy Kubeflow Pipelines and MinIO dependencies
+# 2. Deploy Kubeflow Pipelines with Kustomize overlays
 make kfp-install
 
-# 3. Apply custom Kubernetes manifests (Networking & Storage configurations)
-make apply-manifests
+# 3. Access the Kubeflow Pipelines UI (localhost:8080)
+make kfp-ui
 
-# 4. Trigger the ETL & MLOps Pipeline
-make run-pipeline
+# 4. Check cluster health and pod status
+make k8s-status
 
-# 5. Start the frontend BI Dashboard locally
-make serve-frontend
+# 5. Tear down the cluster
+make k8s-clean
+
 ```
+
+### Manual Pipeline Execution
+
+```bash
+# Activate virtual environment and install dependencies
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -U langchain-deepseek
+
+# 1. Execute A2A Batch Scraping
+PYTHONPATH=. python scraping/main.py
+
+# 2. Execute High-Speed Async LLM Enrichment
+PYTHONPATH=. python llm_agents/main.py
+
+# 3. Submit Kubeflow Pipeline
+PYTHONPATH=. python pipelines/submit_pipeline.py
+
+```
+
+#### Launch BI Dashboard
+
+```bash
+# Start the Flask web application locally
+PYTHONPATH=. python frontend/app.py
+```
+
+Open your browser to `http://127.0.0.1:5000`.
 
 ---
 
-## 📂 Project Structure
-
-```text
+# 📁 Project Structure
+```Plaintext
 .
-├── docs/                 # Architectural diagrams and specifications
-├── frontend/             # Flask backend, HTML/JS/CSS assets & Plotly views
-├── k8s-manifests/        # Kubernetes manifests and Kustomize configs
-├── llm_agents/           # DeepSeek MCP server, LangChain agents, schemas
-├── ml_models/            # ML logic (KMeans, XGBoost), preprocessors & artifacts
-├── pipelines/            # Kubeflow pipeline DAGs, components, submission scripts
-├── scraping/             # A2A spiders (Shopify, WooCommerce), Playwright configs
-├── scripts/              # Infrastructure utilities (e.g., MinIO artifact upload)
-├── Dockerfile            # Container definition for various microservices
-├── Makefile              # Centralized DevOps & MLOps operational commands
-└── requirements.txt      # Core Python dependencies
+├── data/
+│   ├── raw/             # Raw JSON data (sample_products.json)
+│   └── processed/       # Enriched data & ML-ready CSVs
+├── docs/                # Architecture diagrams & screenshots
+├── frontend/            # Native Flask BI Application
+│   ├── static/          # Custom CSS and JavaScript
+│   ├── templates/       # HTML Jinja2 views
+│   └── app.py           # Flask server & REST API
+├── k8s-manifests/       # Kubernetes & Kustomize manifests
+├── llm_agents/          # AI Layer (DeepSeek & LangChain)
+│   ├── enricher.py      # Structured data enrichment
+│   ├── main.py          # High-speed batch execution
+│   └── mcp_server.py    # FastMCP server implementation
+├── ml_models/           # Data Science Pipeline
+│   ├── preprocessing.py # Feature engineering & data imputation
+│   ├── supervised.py    # Classification models
+│   ├── unsupervised.py  # Clustering & PCA models
+│   ├── association_rules.py # Apriori rule mining
+│   └── scoring.py       # Final scoring logic
+├── pipelines/           # MLOps Orchestration
+│   ├── kfp_components.py# Kubeflow component definitions
+│   └── main_pipeline.py # DAG assembly
+├── scraping/            # Data Ingestion Layer
+│   ├── shopify_agent.py
+│   └── woocommerce_agent.py
+├── Dockerfile           # Container definition
+├── Makefile             # Automation & deployment scripts
+└── requirements.txt     # Python dependencies
 ```
 
 ---
+# 👨‍💻 Authors & Contributors
 
-## 👥 Authors and Contributors
+This platform was architected and engineered by:
 
-Conceptualized, architected, and engineered by:
+- Yassine Kamouss — Cloud Architecture, MLOps Engineering, Kubernetes & Kubeflow
 
-- **Yassine Kamouss** - *Cloud Architecture & MLOps Engineering*
-- **Mohammed Salhi** - *AI Integration & Data Engineering*
+- Yahya Ahmane — AI Integration, LLM & Agent Systems
 
 ---
+Smart eCommerce Intelligence — FST Tanger, LSI 2, Modules: Data Mining & SID, 2025/2026
