@@ -1,302 +1,167 @@
-"""Streamlit BI dashboard for top product intelligence."""
+"""Flask backend for Smart eCommerce Intelligence Dashboard."""
 
-from __future__ import annotations
-
+import json
+import os
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import plotly.express as px
-import streamlit as st
+from flask import Flask, jsonify, render_template, request
+from langchain_deepseek import ChatDeepSeek
 
-from frontend.chat_component import render_chat_interface
+app = Flask(__name__)
 
-st.set_page_config(
-    page_title="Smart eCommerce Intelligence",
-    page_icon=":bar_chart:",
-    layout="wide",
-)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_PATH = PROJECT_ROOT / "data" / "processed" / "top_k_products.json"
+RULES_PATH = PROJECT_ROOT / "data" / "processed" / "association_rules.json"
 
-st.markdown(
-    "<style> .stApp { background-color: #0E1117; color: white; } </style>",
-    unsafe_allow_html=True,
-)
+def _load_env_file() -> None:
+    """Load .env values into environment when not already present."""
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", maxsplit=1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
-st.markdown(
-    """
-    <style>
-        .stApp {
-            background-color: #0E1117;
-            color: #f4f6f8;
-        }
-        .dashboard-title {
-            font-size: 2.2rem;
-            font-weight: 700;
-            color: #f4f6f8;
-            letter-spacing: 0.02em;
-            margin-bottom: 0.25rem;
-        }
-        .dashboard-subtitle {
-            color: #c7d4df;
-            font-size: 1rem;
-            margin-bottom: 1rem;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+_load_env_file()
 
-
-@st.cache_data(show_spinner=False)
-def load_top_products_df() -> pd.DataFrame:
-    """Load top-k products from processed dataset into a DataFrame."""
-    data_path = Path(__file__).resolve().parents[1] / "data" / "processed" / "top_k_products.json"
-    if not data_path.exists():
-        raise FileNotFoundError(f"Dataset not found at {data_path}")
-
-    df = pd.read_json(data_path)
-
-    numeric_columns = ["price", "promotional_price", "rating", "review_count", "final_score"]
-    for column in numeric_columns:
-        if column in df.columns:
-            df[column] = pd.to_numeric(df[column], errors="coerce")
-
+def load_data() -> pd.DataFrame:
+    if not DATA_PATH.exists():
+        return pd.DataFrame()
+    df = pd.read_json(DATA_PATH)
+    numeric_columns = ["price", "promotional_price", "rating", "review_count", "final_score", "pca_1", "pca_2"]
+    for col in numeric_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     if "cluster_id" in df.columns:
         df["cluster_id"] = pd.to_numeric(df["cluster_id"], errors="coerce").astype("Int64")
-
     return df
 
-
-def format_metric(value: float | None, precision: int = 2, prefix: str = "") -> str:
-    """Format metric values with safe fallback for missing values."""
-    if value is None or pd.isna(value):
-        return f"{prefix}{0:.{precision}f}"
-    return f"{prefix}{value:,.{precision}f}"
-
-
-def safe_mean(df: pd.DataFrame, column: str) -> float:
-    """Return safe mean for a column, defaulting to 0.0 when unavailable."""
-    if column not in df.columns:
-        return 0.0
-    series = pd.to_numeric(df[column], errors="coerce")
-    if series.dropna().empty:
-        return 0.0
-    return float(series.mean())
-
-
-def build_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare a UI-safe table by dropping nested columns and filling nulls."""
-    display_df = df.copy()
-
-    unnamed_columns = [column for column in display_df.columns if str(column).startswith("Unnamed")]
-
-    nested_columns: list[str] = []
-    for column in display_df.columns:
-        sample_series = display_df[column].dropna()
-        if sample_series.empty:
-            continue
-        if sample_series.map(lambda value: isinstance(value, (dict, list))).any():
-            nested_columns.append(column)
-
-    columns_to_drop = sorted(set(unnamed_columns + nested_columns))
-    if columns_to_drop:
-        display_df = display_df.drop(columns=columns_to_drop)
-
-    numeric_columns = display_df.select_dtypes(include=["number"]).columns
-    text_columns = display_df.select_dtypes(exclude=["number"]).columns
-
-    if len(numeric_columns) > 0:
-        display_df[numeric_columns] = display_df[numeric_columns].fillna(0)
-    if len(text_columns) > 0:
-        display_df[text_columns] = display_df[text_columns].fillna("N/A")
-
-    return display_df
-
-
-def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply sidebar filters and return filtered DataFrame."""
-    st.sidebar.header("Filters")
-
+def apply_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
     filtered_df = df.copy()
-
-    if "standardized_category" in df.columns:
-        categories = sorted(df["standardized_category"].dropna().astype(str).unique().tolist())
-        selected_categories = st.sidebar.multiselect(
-            "Category",
-            options=categories,
-        )
-        if selected_categories:
-            filtered_df = filtered_df[
-                filtered_df["standardized_category"].astype(str).isin(selected_categories)
-            ]
-
-    if "stock_status" in df.columns:
-        stock_values = sorted(df["stock_status"].dropna().astype(str).unique().tolist())
-        selected_stock = st.sidebar.multiselect(
-            "Stock Status",
-            options=stock_values,
-        )
-        if selected_stock:
-            filtered_df = filtered_df[filtered_df["stock_status"].astype(str).isin(selected_stock)]
-
+    categories = filters.get("categories", [])
+    stock_status = filters.get("stock_status", [])
+    
+    if categories and "standardized_category" in df.columns:
+        filtered_df = filtered_df[filtered_df["standardized_category"].astype(str).isin(categories)]
+    
+    if stock_status and "stock_status" in df.columns:
+        filtered_df = filtered_df[filtered_df["stock_status"].astype(str).isin(stock_status)]
+        
     return filtered_df
 
+def get_unique_values(df: pd.DataFrame, column: str) -> List[str]:
+    if column not in df.columns:
+        return []
+    return sorted(df[column].dropna().astype(str).unique().tolist())
 
-def render_kpis(df: pd.DataFrame) -> None:
-    """Render first row KPI metrics."""
-    avg_price = safe_mean(df, "price")
-    avg_score = safe_mean(df, "final_score")
+@app.route("/")
+def index():
+    return render_template("index.html")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Products", f"{len(df):,}")
-    col2.metric("Average Price", format_metric(avg_price, prefix="$"))
-    col3.metric("Average Final Score", format_metric(avg_score, precision=3))
-
-
-def render_scatter_plot(df: pd.DataFrame) -> None:
-    """Render second row interactive scatter chart (Price vs Final Score)."""
-    st.subheader("Price vs Product Performance")
-
-    filtered_df = df.copy()
-    required_columns = ["price", "final_score", "standardized_category"]
-    missing_columns = [column for column in required_columns if column not in filtered_df.columns]
-    if missing_columns:
-        st.info(
-            "Scatter plot requires columns: "
-            + ", ".join(required_columns)
-            + ". Missing: "
-            + ", ".join(missing_columns)
-        )
-        return
-
-    filtered_df["price"] = pd.to_numeric(filtered_df["price"], errors="coerce")
-    filtered_df["final_score"] = pd.to_numeric(filtered_df["final_score"], errors="coerce")
-    filtered_df = filtered_df.dropna(subset=["price", "final_score"])
-    if filtered_df.empty:
-        st.info("No valid points are available for scatter plotting after null filtering.")
-        return
-
-    hover_columns = [column for column in ["name", "short_summary"] if column in filtered_df.columns]
-
-    fig = px.scatter(
-        filtered_df,
-        x="price",
-        y="final_score",
-        color="standardized_category",
-        hover_data=hover_columns,
-        template="plotly_dark",
-        labels={"final_score": "Final Score"},
-        title="Interactive Product Positioning by Price and Score",
-    )
-
-    fig.update_traces(
-        marker=dict(size=15, opacity=0.8, line=dict(width=1, color="DarkSlateGrey"))
-    )
-    fig.update_layout(
-        height=500,
-        margin=dict(l=20, r=20, t=60, b=20),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(14,17,23,0.7)",
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-def render_pca_plot(df: pd.DataFrame) -> None:
-    """Render PCA cluster analysis chart."""
-    st.subheader("Analyse des Clusters (PCA)")
-    
-    required_columns = ["pca_1", "pca_2", "cluster_id"]
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        st.info(f"PCA plot requires columns: {', '.join(required_columns)}. Missing: {', '.join(missing_columns)}")
-        return
+@app.route("/api/data", methods=["POST"])
+def get_dashboard_data():
+    filters = request.json or {}
+    df = load_data()
+    if df.empty:
+        return jsonify({"error": "No data available"}), 404
         
-    hover_columns = ["name"] if "name" in df.columns else []
-    
-    # Ensure cluster_id is treated as discrete category
-    plot_df = df.copy()
-    plot_df["cluster_id"] = plot_df["cluster_id"].astype(str)
-    
-    fig = px.scatter(
-        plot_df,
-        x="pca_1",
-        y="pca_2",
-        color="cluster_id",
-        hover_data=hover_columns,
-        template="plotly_dark",
-        title="Répartition des produits (PCA 2D)",
-        labels={"pca_1": "Composante Principale 1", "pca_2": "Composante Principale 2", "cluster_id": "Cluster"}
-    )
-    fig.update_traces(marker=dict(size=12, opacity=0.8, line=dict(width=1, color="DarkSlateGrey")))
-    st.plotly_chart(fig, use_container_width=True)
+    # Get options for filters before filtering
+    filter_options = {
+        "categories": get_unique_values(df, "standardized_category"),
+        "stock_status": get_unique_values(df, "stock_status")
+    }
 
-def render_association_rules() -> None:
-    """Render association rules section."""
-    st.subheader("Recommandations & Comportements d'achat")
+    filtered_df = apply_filters(df, filters)
     
-    rules_path = Path(__file__).resolve().parents[1] / "data" / "processed" / "association_rules.json"
-    if not rules_path.exists():
-        st.info("Aucune règle d'association générée.")
-        return
+    # KPIs
+    kpis = {
+        "total_products": len(filtered_df),
+        "avg_price": float(filtered_df["price"].mean()) if not filtered_df["price"].empty and not pd.isna(filtered_df["price"].mean()) else 0.0,
+        "avg_score": float(filtered_df["final_score"].mean()) if not filtered_df["final_score"].empty and not pd.isna(filtered_df["final_score"].mean()) else 0.0,
+    }
+
+    # Association rules
+    rules = []
+    if RULES_PATH.exists():
+        try:
+            all_rules = json.loads(RULES_PATH.read_text(encoding="utf-8"))
+            rules = all_rules[:15]
+        except Exception:
+            pass
+
+    # Clean data for frontend table and charts
+    display_df = filtered_df.copy()
+    display_df = display_df.fillna("N/A")
+    # convert nested dicts/lists to string
+    for col in display_df.columns:
+        if display_df[col].apply(lambda x: isinstance(x, (dict, list))).any():
+            display_df = display_df.drop(columns=[col])
+            
+    records = display_df.to_dict(orient="records")
+
+    return jsonify({
+        "kpis": kpis,
+        "filter_options": filter_options,
+        "data": records,
+        "association_rules": rules
+    })
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    data = request.json or {}
+    user_message = data.get("message", "")
+    filters = data.get("filters", {})
+    history = data.get("history", [])
+    
+    if not user_message:
+        return jsonify({"error": "Message is required"}), 400
         
-    import json
+    df = load_data()
+    filtered_df = apply_filters(df, filters)
+    
+    deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not deepseek_api_key:
+        return jsonify({"reply": "Error: DEEPSEEK_API_KEY is not set in environment."})
+
     try:
-        rules = json.loads(rules_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        st.error("Erreur lors de la lecture des règles d'association.")
-        return
+        llm = ChatDeepSeek(
+            model="deepseek-chat",
+            temperature=0.2,
+            max_retries=3
+        )
         
-    if not rules:
-        st.info("Aucune règle trouvée.")
-        return
+        # Build context
+        safe_df = filtered_df.copy()
+        for col in safe_df.columns:
+            safe_df[col] = safe_df[col].apply(lambda x: str(x) if isinstance(x, (dict, list)) else x)
         
-    table_data = []
-    for rule in rules[:15]:  # Top 15
-        ant = ", ".join(rule.get("antecedents_names", rule.get("antecedents", [])))
-        con = ", ".join(rule.get("consequents_names", rule.get("consequents", [])))
-        conf = rule.get("confidence", 0) * 100
-        lift = rule.get("lift", 0)
-        table_data.append({
-            "Règle": f"Si un client achète [{ant}], il a {conf:.1f}% de chances d'acheter [{con}]",
-            "Confiance": f"{conf:.1f}%",
-            "Lift": f"{lift:.2f}"
-        })
+        data_summary = json.dumps(safe_df.head(100).to_dict(orient="records"), ensure_ascii=False)
+        history_context = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in history[-6:]])
         
-    st.table(pd.DataFrame(table_data))
+        prompt = (
+            "You are a helpful eCommerce BI assistant. "
+            "Answer the user's question based ONLY on the following dataset of top products: "
+            f"{data_summary}\n\n"
+            "Keep answers concise, factual, and reference only visible data. "
+            "If the answer is not in the data, say you cannot find it in the filtered dataset.\n\n"
+            f"Conversation context:\n{history_context}\n\n"
+            f"User question: {user_message}"
+        )
+        
+        response = llm.invoke(prompt)
+        reply = response.content if hasattr(response, "content") else str(response)
+        
+        return jsonify({"reply": reply})
+    except Exception as e:
+        return jsonify({"reply": f"AI service error: {str(e)}"})
 
-
-st.markdown('<div class="dashboard-title">Smart eCommerce Intelligence Dashboard</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="dashboard-subtitle">Top-K products analytics, filtering, and explainable insights.</div>',
-    unsafe_allow_html=True,
-)
-
-try:
-    data_df = load_top_products_df()
-except (FileNotFoundError, ValueError) as exc:
-    st.error(f"Failed to load processed dataset: {exc}")
-    st.stop()
-
-filtered_data_df = apply_filters(data_df)
-
-if filtered_data_df.empty:
-    st.warning("No products match the selected filters. Adjust filters in the sidebar.")
-    st.stop()
-
-render_kpis(filtered_data_df)
-st.divider()
-render_scatter_plot(filtered_data_df)
-st.divider()
-
-# New PCA section
-render_pca_plot(filtered_data_df)
-st.divider()
-
-# New Association Rules section
-render_association_rules()
-st.divider()
-
-st.subheader("Top Products Data")
-display_data_df = build_display_dataframe(filtered_data_df)
-st.dataframe(display_data_df, use_container_width=True)
-st.divider()
-render_chat_interface(filtered_data_df)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

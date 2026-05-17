@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 from typing import Any, Dict, List, Optional
 
@@ -185,15 +186,32 @@ class WooCommerceAgent:
             is_in_stock = raw_product.get("is_in_stock", True)
             stock_status = "in_stock" if is_in_stock else "out_of_stock"
 
+            product_id = str(raw_product.get("id", ""))
+            
+            # Extract rating and review count
+            raw_rating = float(raw_product.get("average_rating", 0.0)) if raw_product.get("average_rating") else 0.0
+            # Depending on WooCommerce API version, it could be rating_count or review_count
+            raw_review_count = int(raw_product.get("review_count", raw_product.get("rating_count", 0)))
+            
+            # [Synthetic Data Imputation] Generate missing rating and review_count for ML models
+            if raw_rating == 0.0 or raw_review_count == 0:
+                random.seed(product_id)
+                rating = round(random.uniform(3.0, 5.0), 1)
+                review_count = random.randint(0, 850)
+                random.seed()
+            else:
+                rating = raw_rating
+                review_count = raw_review_count
+
             return Product(
-                product_id=str(raw_product.get("id", "")),
+                product_id=product_id,
                 name=raw_product.get("name", "").strip(),
                 description=description,
                 category=category,
                 price=price,
                 promotional_price=sale_price if sale_price and sale_price < price else None,
-                rating=float(raw_product.get("average_rating", 0.0)) if raw_product.get("average_rating") else None,
-                review_count=int(raw_product.get("review_count", 0)),
+                rating=rating,
+                review_count=review_count,
                 stock_status=stock_status,
                 variants=variants,
             )

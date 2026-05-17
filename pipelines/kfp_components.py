@@ -8,7 +8,7 @@ from kfp.dsl import Dataset, Input, Model, Output
 
 
 @dsl.component(
-    base_image="python:3.11",
+    base_image="ecommerce-ml-image:v1",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -25,6 +25,10 @@ def preprocess_data_op(
     import logging
 
     import pandas as pd
+    import json
+    from pathlib import Path
+    import sys
+    sys.path.append("/app")
     from ml_models import preprocessing
 
     logging.basicConfig(
@@ -43,7 +47,7 @@ def preprocess_data_op(
 
 
 @dsl.component(
-    base_image="python:3.11",
+    base_image="ecommerce-ml-image:v1",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -60,8 +64,12 @@ def train_supervised_op(
     """Train supervised XGBoost model and persist model + metrics artifacts."""
     import logging
 
+    from pathlib import Path
     import pandas as pd
     from sklearn.model_selection import train_test_split
+    import sys
+    import json
+    sys.path.append("/app")
     from ml_models import supervised
 
     logging.basicConfig(
@@ -104,7 +112,7 @@ def train_supervised_op(
 
 
 @dsl.component(
-    base_image="python:3.11",
+    base_image="ecommerce-ml-image:v1",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -117,13 +125,18 @@ def train_unsupervised_op(
     ml_ready_data: Input[Dataset],
     kmeans_model: Output[Model],
     kmeans_scaler: Output[Model],
+    pca_model: Output[Model],
     unsupervised_metrics: Output[Dataset],
 ) -> None:
     """Train unsupervised KMeans model and persist scaler/model/metrics artifacts."""
     import logging
 
+    from pathlib import Path
     import joblib
+    import json
     import pandas as pd
+    import sys
+    sys.path.append("/app")
     from ml_models import unsupervised
 
     logging.basicConfig(
@@ -131,6 +144,7 @@ def train_unsupervised_op(
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
+    pca_path = Path(pca_model.path)
     dataset_path = Path(ml_ready_data.path)
     model_path = Path(kmeans_model.path)
     scaler_path = Path(kmeans_scaler.path)
@@ -139,17 +153,19 @@ def train_unsupervised_op(
     model_path.parent.mkdir(parents=True, exist_ok=True)
     scaler_path.parent.mkdir(parents=True, exist_ok=True)
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    pca_path.parent.mkdir(parents=True, exist_ok=True)
 
     dataframe = pd.read_csv(dataset_path)
-    scaler, model, metrics = unsupervised.train_clustering(dataframe)
+    scaler, model, pca, metrics = unsupervised.train_clustering(dataframe)
 
     joblib.dump(model, model_path)
     joblib.dump(scaler, scaler_path)
+    joblib.dump(pca, pca_path)
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
 
 @dsl.component(
-    base_image="python:3.11",
+    base_image="ecommerce-ml-image:v1",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -164,14 +180,19 @@ def score_top_products_op(
     supervised_model: Input[Model],
     kmeans_model: Input[Model],
     kmeans_scaler: Input[Model],
+    pca_model: Input[Model],
     top_k_products: Output[Dataset],
 ) -> None:
     """Score products with supervised + unsupervised signals and output top-k JSON."""
     import logging
 
+    from pathlib import Path
     import joblib
+    import json
     import pandas as pd
     from xgboost import XGBClassifier
+    import sys
+    sys.path.append("/app")
     from ml_models import scoring
 
     logging.basicConfig(

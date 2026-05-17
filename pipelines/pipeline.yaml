@@ -2,7 +2,7 @@
 # Name: ecommerce-intelligence-pipeline
 # Description: Run preprocessing, parallel training, and top-k scoring.
 # Inputs:
-#    enriched_products_uri: str [Default: 'data/processed/enriched_products.json']
+#    enriched_products_uri: str [Default: 'minio://mlpipeline/enriched_products.json']
 components:
   comp-importer:
     executorLabel: exec-importer
@@ -50,6 +50,10 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
+        pca_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
         supervised_model:
           artifactType:
             schemaTitle: system.Model
@@ -96,6 +100,10 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+        pca_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
         unsupervised_metrics:
           artifactType:
             schemaTitle: system.Dataset
@@ -139,15 +147,17 @@ deploymentSpec:
           \ *\n\ndef preprocess_data_op(\n    enriched_products: Input[Dataset],\n\
           \    ml_ready_data: Output[Dataset],\n) -> None:\n    \"\"\"Preprocess enriched\
           \ products into an ML-ready tabular dataset.\"\"\"\n    import logging\n\
-          \n    import pandas as pd\n    from ml_models import preprocessing\n\n \
-          \   logging.basicConfig(\n        level=logging.INFO,\n        format=\"\
-          %(asctime)s %(levelname)s %(name)s %(message)s\",\n    )\n\n    input_path\
-          \ = Path(enriched_products.path)\n    output_path = Path(ml_ready_data.path)\n\
-          \    output_path.parent.mkdir(parents=True, exist_ok=True)\n\n    dataframe\
-          \ = preprocessing.load_enriched_dataframe(input_path)\n    preprocessing.validate_columns(dataframe,\
-          \ preprocessing.REQUIRED_COLUMNS)\n    processed = preprocessing.preprocess_features(dataframe)\n\
-          \    processed.to_csv(output_path, index=False)\n\n"
-        image: python:3.11
+          \n    import pandas as pd\n    import json\n    from pathlib import Path\n\
+          \    import sys\n    sys.path.append(\"/app\")\n    from ml_models import\
+          \ preprocessing\n\n    logging.basicConfig(\n        level=logging.INFO,\n\
+          \        format=\"%(asctime)s %(levelname)s %(name)s %(message)s\",\n  \
+          \  )\n\n    input_path = Path(enriched_products.path)\n    output_path =\
+          \ Path(ml_ready_data.path)\n    output_path.parent.mkdir(parents=True, exist_ok=True)\n\
+          \n    dataframe = preprocessing.load_enriched_dataframe(input_path)\n  \
+          \  preprocessing.validate_columns(dataframe, preprocessing.REQUIRED_COLUMNS)\n\
+          \    processed = preprocessing.preprocess_features(dataframe)\n    processed.to_csv(output_path,\
+          \ index=False)\n\n"
+        image: ecommerce-ml-image:v1
     exec-score-top-products-op:
       container:
         args:
@@ -178,14 +188,15 @@ deploymentSpec:
           \ *\n\ndef score_top_products_op(\n    enriched_products: Input[Dataset],\n\
           \    ml_ready_data: Input[Dataset],\n    supervised_model: Input[Model],\n\
           \    kmeans_model: Input[Model],\n    kmeans_scaler: Input[Model],\n   \
-          \ top_k_products: Output[Dataset],\n) -> None:\n    \"\"\"Score products\
-          \ with supervised + unsupervised signals and output top-k JSON.\"\"\"\n\
-          \    import logging\n\n    import joblib\n    import pandas as pd\n    from\
-          \ xgboost import XGBClassifier\n    from ml_models import scoring\n\n  \
-          \  logging.basicConfig(\n        level=logging.INFO,\n        format=\"\
-          %(asctime)s %(levelname)s %(name)s %(message)s\",\n    )\n\n    enriched_records\
-          \ = scoring.load_json_records(Path(enriched_products.path))\n    enriched_df\
-          \ = pd.DataFrame(enriched_records)\n\n    ml_ready_df = scoring.load_ml_ready(Path(ml_ready_data.path))\n\
+          \ pca_model: Input[Model],\n    top_k_products: Output[Dataset],\n) -> None:\n\
+          \    \"\"\"Score products with supervised + unsupervised signals and output\
+          \ top-k JSON.\"\"\"\n    import logging\n\n    from pathlib import Path\n\
+          \    import joblib\n    import json\n    import pandas as pd\n    from xgboost\
+          \ import XGBClassifier\n    import sys\n    sys.path.append(\"/app\")\n\
+          \    from ml_models import scoring\n\n    logging.basicConfig(\n       \
+          \ level=logging.INFO,\n        format=\"%(asctime)s %(levelname)s %(name)s\
+          \ %(message)s\",\n    )\n\n    enriched_records = scoring.load_json_records(Path(enriched_products.path))\n\
+          \    enriched_df = pd.DataFrame(enriched_records)\n\n    ml_ready_df = scoring.load_ml_ready(Path(ml_ready_data.path))\n\
           \    if \"reviews\" not in ml_ready_df.columns and \"review_count\" in ml_ready_df.columns:\n\
           \        ml_ready_df[\"reviews\"] = pd.to_numeric(ml_ready_df[\"review_count\"\
           ], errors=\"coerce\").fillna(0)\n\n    model = XGBClassifier()\n    model.load_model(supervised_model.path)\n\
@@ -220,7 +231,7 @@ deploymentSpec:
           \ Path(top_k_products.path)\n    output_path.parent.mkdir(parents=True,\
           \ exist_ok=True)\n    output_path.write_text(json.dumps(output_records,\
           \ indent=2), encoding=\"utf-8\")\n\n"
-        image: python:3.11
+        image: ecommerce-ml-image:v1
     exec-train-supervised-op:
       container:
         args:
@@ -251,25 +262,27 @@ deploymentSpec:
           \ *\n\ndef train_supervised_op(\n    ml_ready_data: Input[Dataset],\n  \
           \  supervised_model: Output[Model],\n    supervised_metrics: Output[Dataset],\n\
           ) -> None:\n    \"\"\"Train supervised XGBoost model and persist model +\
-          \ metrics artifacts.\"\"\"\n    import logging\n\n    import pandas as pd\n\
-          \    from sklearn.model_selection import train_test_split\n    from ml_models\
-          \ import supervised\n\n    logging.basicConfig(\n        level=logging.INFO,\n\
-          \        format=\"%(asctime)s %(levelname)s %(name)s %(message)s\",\n  \
-          \  )\n\n    dataset_path = Path(ml_ready_data.path)\n    model_path = Path(supervised_model.path)\n\
-          \    metrics_path = Path(supervised_metrics.path)\n\n    model_path.parent.mkdir(parents=True,\
-          \ exist_ok=True)\n    metrics_path.parent.mkdir(parents=True, exist_ok=True)\n\
-          \n    dataframe = pd.read_csv(dataset_path)\n    if dataframe.empty:\n \
-          \       raise ValueError(\"ML-ready dataset is empty.\")\n\n    X, y = supervised.build_feature_matrix(dataframe)\n\
-          \n    min_class_count = int(y.value_counts().min())\n    class_count = int(y.nunique())\n\
-          \    estimated_test_count = max(1, int(round(len(y) * 0.2)))\n    can_stratify\
-          \ = min_class_count >= 2 and estimated_test_count >= class_count\n    stratify_target\
-          \ = y if can_stratify else None\n\n    X_train, X_test, y_train, y_test\
-          \ = train_test_split(\n        X,\n        y,\n        test_size=0.2,\n\
-          \        random_state=42,\n        stratify=stratify_target,\n    )\n\n\
-          \    model = supervised.train_model(X_train, y_train)\n    metrics = supervised.evaluate_model(model,\
-          \ X_test, y_test)\n\n    model.save_model(str(model_path))\n    metrics_path.write_text(json.dumps(metrics,\
-          \ indent=2), encoding=\"utf-8\")\n\n"
-        image: python:3.11
+          \ metrics artifacts.\"\"\"\n    import logging\n\n    from pathlib import\
+          \ Path\n    import pandas as pd\n    from sklearn.model_selection import\
+          \ train_test_split\n    import sys\n    import json\n    sys.path.append(\"\
+          /app\")\n    from ml_models import supervised\n\n    logging.basicConfig(\n\
+          \        level=logging.INFO,\n        format=\"%(asctime)s %(levelname)s\
+          \ %(name)s %(message)s\",\n    )\n\n    dataset_path = Path(ml_ready_data.path)\n\
+          \    model_path = Path(supervised_model.path)\n    metrics_path = Path(supervised_metrics.path)\n\
+          \n    model_path.parent.mkdir(parents=True, exist_ok=True)\n    metrics_path.parent.mkdir(parents=True,\
+          \ exist_ok=True)\n\n    dataframe = pd.read_csv(dataset_path)\n    if dataframe.empty:\n\
+          \        raise ValueError(\"ML-ready dataset is empty.\")\n\n    X, y =\
+          \ supervised.build_feature_matrix(dataframe)\n\n    min_class_count = int(y.value_counts().min())\n\
+          \    class_count = int(y.nunique())\n    estimated_test_count = max(1, int(round(len(y)\
+          \ * 0.2)))\n    can_stratify = min_class_count >= 2 and estimated_test_count\
+          \ >= class_count\n    stratify_target = y if can_stratify else None\n\n\
+          \    X_train, X_test, y_train, y_test = train_test_split(\n        X,\n\
+          \        y,\n        test_size=0.2,\n        random_state=42,\n        stratify=stratify_target,\n\
+          \    )\n\n    model = supervised.train_model(X_train, y_train)\n    metrics\
+          \ = supervised.evaluate_model(model, X_test, y_test)\n\n    model.save_model(str(model_path))\n\
+          \    metrics_path.write_text(json.dumps(metrics, indent=2), encoding=\"\
+          utf-8\")\n\n"
+        image: ecommerce-ml-image:v1
     exec-train-unsupervised-op:
       container:
         args:
@@ -299,21 +312,24 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train_unsupervised_op(\n    ml_ready_data: Input[Dataset],\n\
           \    kmeans_model: Output[Model],\n    kmeans_scaler: Output[Model],\n \
-          \   unsupervised_metrics: Output[Dataset],\n) -> None:\n    \"\"\"Train\
-          \ unsupervised KMeans model and persist scaler/model/metrics artifacts.\"\
-          \"\"\n    import logging\n\n    import joblib\n    import pandas as pd\n\
-          \    from ml_models import unsupervised\n\n    logging.basicConfig(\n  \
-          \      level=logging.INFO,\n        format=\"%(asctime)s %(levelname)s %(name)s\
-          \ %(message)s\",\n    )\n\n    dataset_path = Path(ml_ready_data.path)\n\
+          \   pca_model: Output[Model],\n    unsupervised_metrics: Output[Dataset],\n\
+          ) -> None:\n    \"\"\"Train unsupervised KMeans model and persist scaler/model/metrics\
+          \ artifacts.\"\"\"\n    import logging\n\n    from pathlib import Path\n\
+          \    import joblib\n    import json\n    import pandas as pd\n    import\
+          \ sys\n    sys.path.append(\"/app\")\n    from ml_models import unsupervised\n\
+          \n    logging.basicConfig(\n        level=logging.INFO,\n        format=\"\
+          %(asctime)s %(levelname)s %(name)s %(message)s\",\n    )\n\n    pca_path\
+          \ = Path(pca_model.path)\n    dataset_path = Path(ml_ready_data.path)\n\
           \    model_path = Path(kmeans_model.path)\n    scaler_path = Path(kmeans_scaler.path)\n\
           \    metrics_path = Path(unsupervised_metrics.path)\n\n    model_path.parent.mkdir(parents=True,\
           \ exist_ok=True)\n    scaler_path.parent.mkdir(parents=True, exist_ok=True)\n\
-          \    metrics_path.parent.mkdir(parents=True, exist_ok=True)\n\n    dataframe\
-          \ = pd.read_csv(dataset_path)\n    scaler, model, metrics = unsupervised.train_clustering(dataframe)\n\
-          \n    joblib.dump(model, model_path)\n    joblib.dump(scaler, scaler_path)\n\
-          \    metrics_path.write_text(json.dumps(metrics, indent=2), encoding=\"\
-          utf-8\")\n\n"
-        image: python:3.11
+          \    metrics_path.parent.mkdir(parents=True, exist_ok=True)\n    pca_path.parent.mkdir(parents=True,\
+          \ exist_ok=True)\n\n    dataframe = pd.read_csv(dataset_path)\n    scaler,\
+          \ model, pca, metrics = unsupervised.train_clustering(dataframe)\n\n   \
+          \ joblib.dump(model, model_path)\n    joblib.dump(scaler, scaler_path)\n\
+          \    joblib.dump(pca, pca_path)\n    metrics_path.write_text(json.dumps(metrics,\
+          \ indent=2), encoding=\"utf-8\")\n\n"
+        image: ecommerce-ml-image:v1
 pipelineInfo:
   description: Run preprocessing, parallel training, and top-k scoring.
   name: ecommerce-intelligence-pipeline
@@ -374,6 +390,10 @@ root:
               taskOutputArtifact:
                 outputArtifactKey: ml_ready_data
                 producerTask: preprocess-data-op
+            pca_model:
+              taskOutputArtifact:
+                outputArtifactKey: pca_model
+                producerTask: train-unsupervised-op
             supervised_model:
               taskOutputArtifact:
                 outputArtifactKey: supervised_model
@@ -413,7 +433,7 @@ root:
   inputDefinitions:
     parameters:
       enriched_products_uri:
-        defaultValue: data/processed/enriched_products.json
+        defaultValue: minio://mlpipeline/enriched_products.json
         isOptional: true
         parameterType: STRING
 schemaVersion: 2.1.0

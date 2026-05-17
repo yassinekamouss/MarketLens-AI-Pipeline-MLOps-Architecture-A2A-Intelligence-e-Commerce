@@ -21,7 +21,7 @@ from pipelines.kfp_components import (  # noqa: E402
 
 @dsl.pipeline(name="ecommerce-intelligence-pipeline")
 def ecommerce_intelligence_pipeline(
-    enriched_products_uri: str = "data/processed/enriched_products.json",
+    enriched_products_uri: str = "minio://mlpipeline/enriched_products.json",
 ) -> None:
     """Run preprocessing, parallel training, and top-k scoring."""
     enriched_input = dsl.importer(
@@ -48,6 +48,7 @@ def ecommerce_intelligence_pipeline(
         supervised_model=supervised_task.outputs["supervised_model"],
         kmeans_model=unsupervised_task.outputs["kmeans_model"],
         kmeans_scaler=unsupervised_task.outputs["kmeans_scaler"],
+        pca_model=unsupervised_task.outputs["pca_model"],
     )
 
 

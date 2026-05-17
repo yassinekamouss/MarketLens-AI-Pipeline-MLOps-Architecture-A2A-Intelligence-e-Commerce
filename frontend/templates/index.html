@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Intelligence | Editorial Report</title>
+    <!-- Fonts: Instrument Serif (Display) + DM Sans (Body) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    
+    <!-- Plotly -->
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation & Filters -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-icon"><i class="fa-solid fa-asterisk"></i></div>
+                <h2>Intel.</h2>
+            </div>
+            
+            <div class="filters-container">
+                <h3>Parameters</h3>
+                
+                <div class="filter-group">
+                    <label for="categoryFilter">Select Category</label>
+                    <select id="categoryFilter" multiple class="custom-select">
+                        <!-- Options injected via JS -->
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="stockFilter">Inventory Status</label>
+                    <select id="stockFilter" multiple class="custom-select">
+                        <!-- Options injected via JS -->
+                    </select>
+                </div>
+
+                <button id="applyFiltersBtn" class="primary-btn">Generate Report</button>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="dashboard-main">
+            <header class="dashboard-header">
+                <h1>Market Intelligence Overview.</h1>
+                <p class="subtitle">An editorial analysis of product performance, clustered datasets, and latent behavioral rules in the current ecosystem.</p>
+            </header>
+
+            <div id="loadingIndicator" class="loading-overlay hidden">
+                <div class="spinner"></div>
+            </div>
+
+            <div class="content-wrapper" id="dashboardContent">
+                <!-- KPIs Row -->
+                <section class="kpi-grid">
+                    <div class="kpi-card tactile-card">
+                        <div class="kpi-icon"><i class="fa-solid fa-shapes"></i></div>
+                        <div class="kpi-label">Analyzed Volume</div>
+                        <div class="kpi-value" id="kpiTotal">0</div>
+                    </div>
+                    <div class="kpi-card tactile-card">
+                        <div class="kpi-icon"><i class="fa-solid fa-coins"></i></div>
+                        <div class="kpi-label">Mean Market Value</div>
+                        <div class="kpi-value" id="kpiAvgPrice">$0.00</div>
+                    </div>
+                    <div class="kpi-card tactile-card">
+                        <div class="kpi-icon"><i class="fa-solid fa-chart-pie"></i></div>
+                        <div class="kpi-label">Performance Index</div>
+                        <div class="kpi-value" id="kpiAvgScore">0.00</div>
+                    </div>
+                </section>
+
+                <!-- Charts Row -->
+                <section class="charts-grid">
+                    <div class="chart-card tactile-card">
+                        <div class="card-header">
+                            <h3>Price vs. Performance</h3>
+                        </div>
+                        <div id="scatterPlot" class="chart-container"></div>
+                    </div>
+                    <div class="chart-card tactile-card">
+                        <div class="card-header">
+                            <h3>Dimensionality Reduction</h3>
+                        </div>
+                        <div id="pcaPlot" class="chart-container"></div>
+                    </div>
+                </section>
+
+                <!-- Association Rules & Data Table Row -->
+                <section class="bottom-grid">
+                    <div class="data-card tactile-card">
+                        <div class="card-header">
+                            <h3>Latent Rules</h3>
+                        </div>
+                        <div class="table-container">
+                            <table id="rulesTable">
+                                <thead>
+                                    <tr>
+                                        <th>Mapping Rule</th>
+                                        <th>Confidence</th>
+                                        <th>Lift</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rows injected via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="data-card tactile-card">
+                        <div class="card-header">
+                            <h3>Top-K Matrix</h3>
+                        </div>
+                        <div class="table-container">
+                            <table id="productsTable">
+                                <thead>
+                                    <!-- Headers injected via JS -->
+                                </thead>
+                                <tbody>
+                                    <!-- Rows injected via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- AI Chatbot Floating Widget -->
+        <div id="chatWidget" class="chat-widget">
+            <div class="chat-header" id="chatHeader">
+                <div class="chat-title">
+                    Notes & Assistant
+                </div>
+                <button id="toggleChatBtn" class="icon-btn"><i class="fa-solid fa-chevron-down"></i></button>
+            </div>
+            <div class="chat-body" id="chatBody">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant">
+                        I am ready to help you analyze the data on this page. What would you like to know?
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="chatInput" placeholder="Type your question..." autocomplete="off">
+                    <button id="sendChatBtn" class="primary-btn"><i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        // Override Plotly layout to match the organic, print-like aesthetic
+        const originalPlotlyNewPlot = Plotly.newPlot;
+        const tactileLayout = {
+            paper_bgcolor: '#ffffff',
+            plot_bgcolor: '#ffffff',
+            font: { family: '"DM Sans", sans-serif', color: '#6b665e' },
+            xaxis: { 
+                gridcolor: '#e0ddd5', 
+                zerolinecolor: '#1c1a17', 
+                linecolor: '#1c1a17' 
+            },
+            yaxis: { 
+                gridcolor: '#e0ddd5', 
+                zerolinecolor: '#1c1a17', 
+                linecolor: '#1c1a17' 
+            },
+            margin: { t: 20, r: 20, l: 40, b: 30 }
+        };
+
+        Plotly.newPlot = function(id, data, layout, config) {
+            const mergedLayout = { ...layout, ...tactileLayout };
+            if (data && data.length > 0) {
+                // Earthy organic colors for the charts
+                const colors = ['#e1492b', '#2b5c4f', '#1c1a17', '#c29b62'];
+                data.forEach((trace, index) => {
+                    if (trace.marker) {
+                        trace.marker.color = colors[index % colors.length];
+                        if(trace.marker.line) trace.marker.line.color = '#ffffff';
+                    }
+                });
+            }
+            return originalPlotlyNewPlot(id, data, mergedLayout, config);
+        };
+    </script>
+</body>
+</html>

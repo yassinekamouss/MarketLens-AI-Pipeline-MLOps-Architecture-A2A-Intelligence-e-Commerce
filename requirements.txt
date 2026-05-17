@@ -18,7 +18,7 @@ kfp
 
 # LLM
 langchain
-langchain-google-genai
+langchain-deepseek
 openai
 anthropic
 mcp
@@ -28,3 +28,5 @@ mlxtend
 streamlit
 plotly
 
+minio
+flask

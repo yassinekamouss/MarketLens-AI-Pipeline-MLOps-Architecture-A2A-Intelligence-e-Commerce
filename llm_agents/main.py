@@ -80,10 +80,10 @@ async def run() -> None:
 
     raw_path, output_path = get_paths(project_root)
 
-    if not os.environ.get("GOOGLE_API_KEY"):
+    if not os.environ.get("DEEPSEEK_API_KEY"):
         LOGGER.error(
-            "missing_google_api_key",
-            extra={"hint": "Set GOOGLE_API_KEY in environment or .env"},
+            "missing_deepseek_api_key",
+            extra={"hint": "Set DEEPSEEK_API_KEY in environment or .env"},
         )
         return
 
@@ -101,7 +101,7 @@ async def run() -> None:
     all_enriched_products = []
     all_errors = []
     
-    batch_size = 50
+    batch_size = 100
     total_products = len(products)
     total_batches = (total_products + batch_size - 1) // batch_size
 
@@ -112,7 +112,7 @@ async def run() -> None:
         batch = products[i:i + batch_size]
         
         try:
-            enriched_batch, errors = await agent.enrich_batch(batch, max_concurrency=3)
+            enriched_batch, errors = await agent.enrich_batch(batch, max_concurrency=15)
             all_enriched_products.extend(enriched_batch)
             all_errors.extend(errors)
         except Exception as exc:  # noqa: BLE001
@@ -123,7 +123,7 @@ async def run() -> None:
         output_path.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
         
         if batch_num < total_batches:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
     LOGGER.info(
         "enrichment_completed",

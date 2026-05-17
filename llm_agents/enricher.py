@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple, Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_deepseek import ChatDeepSeek
 from pydantic import ValidationError
 from tenacity import (
     retry,
@@ -41,21 +41,17 @@ class DataEnrichmentAgent:
         model_name: str | None = None,
         temperature: float = 0.0,
     ) -> None:
-        """Initialize the Gemini-backed structured output chain and local cache."""
-        google_api_key = os.environ.get("GOOGLE_API_KEY")
-        if not google_api_key:
+        """Initialize the DeepSeek-backed structured output chain and local cache."""
+        deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not deepseek_api_key:
             raise ValueError(
-                "GOOGLE_API_KEY is missing. Set it in environment variables before running enrichment."
+                "DEEPSEEK_API_KEY is missing. Set it in environment variables before running enrichment."
             )
 
-        selected_model = model_name or os.environ.get(
-            "GEMINI_MODEL_NAME", "gemini-flash-latest"
-        )
-
-        llm = ChatGoogleGenerativeAI(
-            model=selected_model,
-            google_api_key=google_api_key,
+        llm = ChatDeepSeek(
+            model="deepseek-chat",
             temperature=temperature,
+            max_retries=3
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -148,7 +144,9 @@ class DataEnrichmentAgent:
 
         async def _enrich_with_limit(product: Product) -> EnrichedProduct:
             async with semaphore:
-                return await self.enrich_product(product)
+                result = await self.enrich_product(product)
+                await asyncio.sleep(0.5)
+                return result
 
         tasks = [asyncio.create_task(_enrich_with_limit(product)) for product in products]
 
