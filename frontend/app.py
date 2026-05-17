@@ -49,8 +49,10 @@ def apply_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
     categories = filters.get("categories", [])
     stock_status = filters.get("stock_status", [])
     
-    if categories and "standardized_category" in df.columns:
-        filtered_df = filtered_df[filtered_df["standardized_category"].astype(str).isin(categories)]
+    # Robust column matching: check for standardized_category OR category
+    category_col = "standardized_category" if "standardized_category" in df.columns else "category"
+    if categories and category_col in df.columns:
+        filtered_df = filtered_df[filtered_df[category_col].astype(str).isin(categories)]
     
     if stock_status and "stock_status" in df.columns:
         filtered_df = filtered_df[filtered_df["stock_status"].astype(str).isin(stock_status)]
@@ -74,8 +76,9 @@ def get_dashboard_data():
         return jsonify({"error": "No data available"}), 404
         
     # Get options for filters before filtering
+    category_col = "standardized_category" if "standardized_category" in df.columns else "category"
     filter_options = {
-        "categories": get_unique_values(df, "standardized_category"),
+        "categories": get_unique_values(df, category_col),
         "stock_status": get_unique_values(df, "stock_status")
     }
 

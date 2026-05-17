@@ -82,6 +82,13 @@ async def run() -> None:
                 
             products = await agent.scrape_store(url)
             all_products.extend(products)
+            
+            if len(all_products) >= 3000:
+                all_products = all_products[:3000]
+                logger.info("Reached maximum global limit of 3000 products. Stopping scraping.")
+                success_count += 1
+                break
+                
             success_count += 1
             
         except Exception as exc:

@@ -32,4 +32,4 @@ USER appuser
 COPY . /app
 
 # Default command
-CMD ["streamlit", "run", "frontend/app.py"]
+CMD ["python", "frontend/app.py"]

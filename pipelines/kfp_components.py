@@ -8,7 +8,7 @@ from kfp.dsl import Dataset, Input, Model, Output
 
 
 @dsl.component(
-    base_image="ecommerce-ml-image:v1",
+    base_image="ecommerce-ml-image:v2",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -47,7 +47,7 @@ def preprocess_data_op(
 
 
 @dsl.component(
-    base_image="ecommerce-ml-image:v1",
+    base_image="ecommerce-ml-image:v2",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -112,7 +112,7 @@ def train_supervised_op(
 
 
 @dsl.component(
-    base_image="ecommerce-ml-image:v1",
+    base_image="ecommerce-ml-image:v2",
     packages_to_install=[
         "pandas",
         "numpy",
@@ -165,7 +165,7 @@ def train_unsupervised_op(
 
 
 @dsl.component(
-    base_image="ecommerce-ml-image:v1",
+    base_image="ecommerce-ml-image:v2",
     packages_to_install=[
         "pandas",
         "numpy",

@@ -157,7 +157,7 @@ deploymentSpec:
           \  preprocessing.validate_columns(dataframe, preprocessing.REQUIRED_COLUMNS)\n\
           \    processed = preprocessing.preprocess_features(dataframe)\n    processed.to_csv(output_path,\
           \ index=False)\n\n"
-        image: ecommerce-ml-image:v1
+        image: ecommerce-ml-image:v2
     exec-score-top-products-op:
       container:
         args:
@@ -231,7 +231,7 @@ deploymentSpec:
           \ Path(top_k_products.path)\n    output_path.parent.mkdir(parents=True,\
           \ exist_ok=True)\n    output_path.write_text(json.dumps(output_records,\
           \ indent=2), encoding=\"utf-8\")\n\n"
-        image: ecommerce-ml-image:v1
+        image: ecommerce-ml-image:v2
     exec-train-supervised-op:
       container:
         args:
@@ -282,7 +282,7 @@ deploymentSpec:
           \ = supervised.evaluate_model(model, X_test, y_test)\n\n    model.save_model(str(model_path))\n\
           \    metrics_path.write_text(json.dumps(metrics, indent=2), encoding=\"\
           utf-8\")\n\n"
-        image: ecommerce-ml-image:v1
+        image: ecommerce-ml-image:v2
     exec-train-unsupervised-op:
       container:
         args:
@@ -329,7 +329,7 @@ deploymentSpec:
           \ joblib.dump(model, model_path)\n    joblib.dump(scaler, scaler_path)\n\
           \    joblib.dump(pca, pca_path)\n    metrics_path.write_text(json.dumps(metrics,\
           \ indent=2), encoding=\"utf-8\")\n\n"
-        image: ecommerce-ml-image:v1
+        image: ecommerce-ml-image:v2
 pipelineInfo:
   description: Run preprocessing, parallel training, and top-k scoring.
   name: ecommerce-intelligence-pipeline

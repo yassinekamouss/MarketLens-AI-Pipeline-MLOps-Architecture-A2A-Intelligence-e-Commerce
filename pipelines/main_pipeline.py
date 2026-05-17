@@ -51,7 +51,6 @@ def ecommerce_intelligence_pipeline(
         pca_model=unsupervised_task.outputs["pca_model"],
     )
 
-
 if __name__ == "__main__":
     output_path = Path(__file__).with_name("pipeline.yaml")
     kfp.compiler.Compiler().compile(
